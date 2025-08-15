@@ -66,6 +66,8 @@ INT32 main(INT32 argc, CHAR* argv[])
             audioCodec = RTC_CODEC_ALAW;
         } else if (!STRCMP(argv[2], AUDIO_CODEC_NAME_MULAW)) {
             audioCodec = RTC_CODEC_MULAW;
+        } else if (!STRCMP(argv[2], AUDIO_CODEC_NAME_AAC)) {
+            audioCodec = RTC_CODEC_AAC;
         } else {
             DLOGI("[KVS Viewer] Defaulting to Opus audio codec");
         }

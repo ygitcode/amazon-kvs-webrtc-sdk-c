@@ -646,12 +646,52 @@ VOID sampleVideoFrameHandler(UINT64 customData, PFrame pFrame)
     UNUSED_PARAM(customData);
     DLOGV("Video Frame received. TrackId: %" PRIu64 ", Size: %u, Flags %u", pFrame->trackId, pFrame->size, pFrame->flags);
 }
-
+#if 0
 VOID sampleAudioFrameHandler(UINT64 customData, PFrame pFrame)
 {
     UNUSED_PARAM(customData);
     DLOGV("Audio Frame received. TrackId: %" PRIu64 ", Size: %u, Flags %u", pFrame->trackId, pFrame->size, pFrame->flags);
 }
+#else
+VOID sampleAudioFrameHandler(UINT64 customData, PFrame pFrame)
+{
+    UNUSED_PARAM(customData);
+    static UINT32 frameCount = 0;
+    const UINT32 MAX_FRAMES = 301; // 从 000 到 300，共 301 个文件
+    char filePath[256];
+    FILE *fp;
+    
+    // 检查是否已达到最大帧数
+    if (frameCount >= MAX_FRAMES) {
+        DLOGV("Maximum number of frames (%u) already saved", MAX_FRAMES);
+        return;
+    }
+    
+    
+    // 构建文件路径
+    snprintf(filePath, sizeof(filePath), "aacSampleFramesTalkback/sample-%03u.aac", frameCount);
+    
+    // 打开文件进行写入
+    fp = fopen(filePath, "wb");
+    if (fp == NULL) {
+        DLOGE("Failed to open file for writing: %s", filePath);
+        return;
+    }
+    
+    // 写入音频数据
+    if (pFrame->size > 0 && pFrame->frameData != NULL) {
+        fwrite(pFrame->frameData, 1, pFrame->size, fp);
+        DLOGV("Audio Frame saved to %s. TrackId: %" PRIu64 ", Size: %u, Flags %u", 
+              filePath, pFrame->trackId, pFrame->size, pFrame->flags);
+    }
+    
+    // 关闭文件
+    fclose(fp);
+    
+    // 增加帧计数
+    frameCount++;
+}
+#endif
 
 VOID sampleFrameHandler(UINT64 customData, PFrame pFrame)
 {
