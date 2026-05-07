@@ -966,6 +966,7 @@ a=ssrc:331864867 msid:2e3ca9ff-0c7e-4b9d-9471-2ce80de74b84 757d07a0-892a-46e7-a1
         EXPECT_EQ(count, 5);
         EXPECT_PRED_FORMAT2(testing::IsSubstring, "fakeStream", answerSdp.sdp);
         EXPECT_PRED_FORMAT2(testing::IsSubstring, "fakeTrack", answerSdp.sdp);
+        EXPECT_PRED_FORMAT2(testing::IsSubstring, "a=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level", answerSdp.sdp);
         closePeerConnection(pRtcPeerConnection);
         EXPECT_EQ(STATUS_SUCCESS, freePeerConnection(&pRtcPeerConnection));
     });

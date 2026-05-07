@@ -449,9 +449,9 @@ STATUS populateSingleMediaSection(PKvsPeerConnection pKvsPeerConnection, PKvsRtp
     UINT64 payloadType, rtxPayloadType;
     BOOL containRtx = FALSE;
     BOOL directionFound = FALSE;
-    UINT32 i, remoteAttributeCount, attributeCount = 0;
+    UINT32 i, remoteAttributeCount, attributeCount = 0, remoteMediaTokenLen = 0;
     PSdpMediaDescription pSdpMediaDescriptionRemote;
-    PCHAR currentFmtp = NULL, rtpMapValue = NULL;
+    PCHAR currentFmtp = NULL, rtpMapValue = NULL, end = NULL;
     CHAR remoteSdpAttributeValue[MAX_SDP_ATTRIBUTE_VALUE_LENGTH];
     INT32 amountWritten = 0;
 
@@ -677,6 +677,33 @@ STATUS populateSingleMediaSection(PKvsPeerConnection pKvsPeerConnection, PKvsRtp
     }
 
     attributeCount++;
+
+    if (!pKvsPeerConnection->isOffer && pRtcMediaStreamTrack->kind == MEDIA_STREAM_TRACK_KIND_AUDIO) {
+        pSdpMediaDescriptionRemote = &pRemoteSessionDescription->mediaDescriptions[mediaSectionId];
+        remoteAttributeCount = pSdpMediaDescriptionRemote->mediaAttributesCount;
+
+        if ((end = STRCHR(pSdpMediaDescriptionRemote->mediaName, ' ')) != NULL) {
+            remoteMediaTokenLen = (UINT32) (end - pSdpMediaDescriptionRemote->mediaName);
+        } else {
+            remoteMediaTokenLen = STRLEN(pSdpMediaDescriptionRemote->mediaName);
+        }
+
+        if (remoteMediaTokenLen == (ARRAY_SIZE(MEDIA_SECTION_AUDIO_VALUE) - 1) &&
+            STRNCMP(pSdpMediaDescriptionRemote->mediaName, MEDIA_SECTION_AUDIO_VALUE, remoteMediaTokenLen) == 0) {
+            for (i = 0; i < remoteAttributeCount; i++) {
+                if (STRCMP(pSdpMediaDescriptionRemote->sdpAttributes[i].attributeName, "extmap") == 0 &&
+                    STRSTR(pSdpMediaDescriptionRemote->sdpAttributes[i].attributeValue,
+                           "urn:ietf:params:rtp-hdrext:ssrc-audio-level") != NULL) {
+                    CHK(attributeCount < MAX_SDP_ATTRIBUTES_COUNT, STATUS_SDP_ATTRIBUTE_MAX_EXCEEDED);
+                    STRCPY(pSdpMediaDescription->sdpAttributes[attributeCount].attributeName, "extmap");
+                    STRCPY(pSdpMediaDescription->sdpAttributes[attributeCount].attributeValue,
+                           pSdpMediaDescriptionRemote->sdpAttributes[i].attributeValue);
+                    attributeCount++;
+                    break;
+                }
+            }
+        }
+    }
 
     STRCPY(pSdpMediaDescription->sdpAttributes[attributeCount].attributeName, "rtcp-mux");
     attributeCount++;
