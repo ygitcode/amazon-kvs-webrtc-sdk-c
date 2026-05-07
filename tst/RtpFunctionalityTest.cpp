@@ -83,6 +83,37 @@ TEST_F(RtpFunctionalityTest, marshallUnmarshallGettingSameData)
     MEMFREE(packetList);
 }
 
+TEST_F(RtpFunctionalityTest, populateRtpHeaderExtensionsAudioLevelOnly)
+{
+    RtpPacket rtpPacket{};
+    BYTE extensionPayload[MAX_RTP_ONE_BYTE_EXTENSION_BUFFER_LENGTH] = {0};
+    UINT32 extensionPayloadLength = 0;
+
+    EXPECT_EQ(STATUS_SUCCESS, populateRtpHeaderExtensions(&rtpPacket, 0, 0, 14, TRUE, 42, TRUE, extensionPayload, &extensionPayloadLength));
+    EXPECT_EQ(TRUE, rtpPacket.header.extension);
+    EXPECT_EQ(TWCC_EXT_PROFILE, rtpPacket.header.extensionProfile);
+    EXPECT_EQ(4, extensionPayloadLength);
+    EXPECT_EQ((UINT8) (14 << 4), extensionPayload[0]);
+    EXPECT_EQ((UINT8) (0x80 | 42), extensionPayload[1]);
+}
+
+TEST_F(RtpFunctionalityTest, populateRtpHeaderExtensionsTwccAndAudioLevel)
+{
+    RtpPacket rtpPacket{};
+    BYTE extensionPayload[MAX_RTP_ONE_BYTE_EXTENSION_BUFFER_LENGTH] = {0};
+    UINT32 extensionPayloadLength = 0;
+
+    EXPECT_EQ(STATUS_SUCCESS, populateRtpHeaderExtensions(&rtpPacket, 4, 0x1234, 14, TRUE, 55, FALSE, extensionPayload, &extensionPayloadLength));
+    EXPECT_EQ(TRUE, rtpPacket.header.extension);
+    EXPECT_EQ(TWCC_EXT_PROFILE, rtpPacket.header.extensionProfile);
+    EXPECT_EQ(8, extensionPayloadLength);
+    EXPECT_EQ((UINT8) ((4 << 4) | 1), extensionPayload[0]);
+    EXPECT_EQ((UINT8) 0x12, extensionPayload[1]);
+    EXPECT_EQ((UINT8) 0x34, extensionPayload[2]);
+    EXPECT_EQ((UINT8) (14 << 4), extensionPayload[3]);
+    EXPECT_EQ((UINT8) 55, extensionPayload[4]);
+}
+
 TEST_F(RtpFunctionalityTest, marshallUnmarshallH264Data)
 {
     PBYTE payload = (PBYTE) MEMALLOC(200000); // Assuming this is enough

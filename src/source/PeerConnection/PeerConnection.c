@@ -1325,11 +1325,17 @@ UINT32 parseExtId(PCHAR extmapValue)
 {
     ENTERS();
     UINT32 extid = 0;
+    PCHAR end = NULL, slash = NULL;
     if (extmapValue == NULL || STRCHR(extmapValue, ' ') == NULL) {
         LEAVES();
         return 0;
     }
-    if (STATUS_FAILED(STRTOUI32(extmapValue, STRCHR(extmapValue, ' '), 10, &extid))) {
+    end = STRCHR(extmapValue, ' ');
+    slash = STRCHR(extmapValue, '/');
+    if (slash != NULL && slash < end) {
+        end = slash;
+    }
+    if (end == extmapValue || STATUS_FAILED(STRTOUI32(extmapValue, end, 10, &extid))) {
         LEAVES();
         return 0;
     }
@@ -1361,6 +1367,7 @@ STATUS setRemoteDescription(PRtcPeerConnection pPeerConnection, PRtcSessionDescr
     NULLABLE_SET_VALUE(pKvsPeerConnection->canTrickleIce, FALSE);
 
     CHK_STATUS(deserializeSessionDescription(pSessionDescription, pSessionDescriptionInit->sdp));
+    pKvsPeerConnection->audioLevelExtId = 0;
 
     for (i = 0; i < pSessionDescription->sessionAttributesCount; i++) {
         if (STRCMP(pSessionDescription->sdpAttributes[i].attributeName, "fingerprint") == 0) {
@@ -1405,9 +1412,14 @@ STATUS setRemoteDescription(PRtcPeerConnection pPeerConnection, PRtcSessionDescr
                 NULLABLE_SET_VALUE(pKvsPeerConnection->canTrickleIce, TRUE);
                 // This code is only here because Chrome does NOT adhere to the standard and adds ice-options as a media level attribute
                 // The standard dictates clearly that it should be a session level attribute:  https://tools.ietf.org/html/rfc5245#page-76
-            } else if (STRCMP(pSessionDescription->mediaDescriptions[i].sdpAttributes[j].attributeName, "extmap") == 0 &&
-                       STRSTR(pSessionDescription->mediaDescriptions[i].sdpAttributes[j].attributeValue, TWCC_EXT_URL) != NULL) {
-                pKvsPeerConnection->twccExtId = parseExtId(pSessionDescription->mediaDescriptions[i].sdpAttributes[j].attributeValue);
+            } else if (STRCMP(pSessionDescription->mediaDescriptions[i].sdpAttributes[j].attributeName, "extmap") == 0) {
+                if (STRSTR(pSessionDescription->mediaDescriptions[i].sdpAttributes[j].attributeValue, TWCC_EXT_URL) != NULL) {
+                    pKvsPeerConnection->twccExtId = parseExtId(pSessionDescription->mediaDescriptions[i].sdpAttributes[j].attributeValue);
+                } else if (STRNCMP(pSessionDescription->mediaDescriptions[i].mediaName, MEDIA_SECTION_AUDIO_VALUE,
+                                   ARRAY_SIZE(MEDIA_SECTION_AUDIO_VALUE) - 1) == 0 &&
+                           STRSTR(pSessionDescription->mediaDescriptions[i].sdpAttributes[j].attributeValue, AUDIO_LEVEL_EXT_URL) != NULL) {
+                    pKvsPeerConnection->audioLevelExtId = parseExtId(pSessionDescription->mediaDescriptions[i].sdpAttributes[j].attributeValue);
+                }
             }
         }
     }

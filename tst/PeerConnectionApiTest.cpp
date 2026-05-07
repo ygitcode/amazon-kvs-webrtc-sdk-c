@@ -168,6 +168,55 @@ TEST_F(PeerConnectionApiTest, CONVERT_TIMESTAMP_TO_RTP_MacroWithMathOperations)
     EXPECT_EQ(180000, rtpTimestamp);
 }
 
+TEST_F(PeerConnectionApiTest, parseExtIdSupportsDirectionSuffix)
+{
+    EXPECT_EQ(14, parseExtId((PCHAR) "14 urn:ietf:params:rtp-hdrext:ssrc-audio-level"));
+    EXPECT_EQ(14, parseExtId((PCHAR) "14/recvonly urn:ietf:params:rtp-hdrext:ssrc-audio-level"));
+    EXPECT_EQ(0, parseExtId((PCHAR) "urn:ietf:params:rtp-hdrext:ssrc-audio-level"));
+}
+
+TEST_F(PeerConnectionApiTest, setRemoteDescriptionParsesAudioLevelExtId)
+{
+    PRtcPeerConnection pRtcPeerConnection = nullptr;
+    PRtcRtpTransceiver pRtcRtpTransceiver = nullptr;
+    RtcConfiguration config{};
+    RtcSessionDescriptionInit offer{};
+    RtcMediaStreamTrack track{};
+
+    auto sdpOfferAudio = R"(v=0
+o=- 481034601 1588366671 IN IP4 0.0.0.0
+s=-
+t=0 0
+a=fingerprint:sha-256 87:E6:EC:59:93:76:9F:42:7D:15:17:F6:8F:C4:29:AB:EA:3F:28:B6:DF:F8:14:2F:96:62:2F:16:98:F5:76:E5
+m=audio 9 UDP/TLS/RTP/SAVPF 109
+c=IN IP4 0.0.0.0
+a=recvonly
+a=extmap:14/recvonly urn:ietf:params:rtp-hdrext:ssrc-audio-level
+a=ice-pwd:db2619f637ea75cf7e578e8fc7829ebf
+a=ice-ufrag:6a957b4a
+a=mid:0
+a=rtcp-mux
+a=rtpmap:109 opus/48000/2
+a=setup:actpass
+)";
+
+    track.kind = MEDIA_STREAM_TRACK_KIND_AUDIO;
+    track.codec = RTC_CODEC_OPUS;
+    STRNCPY(track.streamId, "audioStream1", MAX_MEDIA_STREAM_ID_LEN);
+    STRNCPY(track.trackId, "audioTrack1", MAX_MEDIA_STREAM_TRACK_ID_LEN);
+
+    offer.type = SDP_TYPE_OFFER;
+    STRNCPY(offer.sdp, (PCHAR) sdpOfferAudio, MAX_SESSION_DESCRIPTION_INIT_SDP_LEN);
+
+    EXPECT_EQ(STATUS_SUCCESS, createPeerConnection(&config, &pRtcPeerConnection));
+    EXPECT_EQ(STATUS_SUCCESS, addSupportedCodec(pRtcPeerConnection, RTC_CODEC_OPUS));
+    EXPECT_EQ(STATUS_SUCCESS, addTransceiver(pRtcPeerConnection, &track, nullptr, &pRtcRtpTransceiver));
+    EXPECT_EQ(STATUS_SUCCESS, setRemoteDescription(pRtcPeerConnection, &offer));
+    EXPECT_EQ(14, ((PKvsPeerConnection) pRtcPeerConnection)->audioLevelExtId);
+    closePeerConnection(pRtcPeerConnection);
+    EXPECT_EQ(STATUS_SUCCESS, freePeerConnection(&pRtcPeerConnection));
+}
+
 RTC_PEER_CONNECTION_STATE fromIceAgentState(PRtcPeerConnection pRtcPeerConnection, UINT64 iceConnectionState)
 {
     ((PKvsPeerConnection) pRtcPeerConnection)->connectionState = RTC_PEER_CONNECTION_STATE_NONE;

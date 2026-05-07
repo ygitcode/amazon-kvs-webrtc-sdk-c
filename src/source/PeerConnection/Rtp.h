@@ -21,6 +21,8 @@ extern "C" {
 #define MIN_EXPECTED_BIT_RATE                      (DOUBLE)(102.4 * 1024) // Considering 1Kib = 1024 bits
 #define MAX_ROLLING_BUFFER_DURATION_IN_SECONDS     (DOUBLE) 10
 #define MAX_EXPECTED_BIT_RATE                      (DOUBLE)(240 * 1024 * 1024) // Considering 1Kib = 1024 bits
+#define MAX_RTP_ONE_BYTE_EXTENSION_BUFFER_LENGTH   8
+#define RTP_AUDIO_LEVEL_DEFAULT_VALUE              127
 
 // https://www.w3.org/TR/webrtc-stats/#dom-rtcoutboundrtpstreamstats-huge
 // Huge frames, by definition, are frames that have an encoded size at least 2.5 times the average size of the frames.
@@ -45,6 +47,10 @@ typedef struct {
     // used for fps calculation
     UINT64 lastKnownFrameCount;
     UINT64 lastKnownFrameCountTime; // 100ns precision
+
+    BOOL audioLevelEnabled;
+    BOOL audioLevelVoiceActivity;
+    UINT8 audioLevelValue;
 
 } RtcRtpSender, *PRtcRtpSender;
 
@@ -99,6 +105,7 @@ STATUS findTransceiverBySsrc(PKvsPeerConnection pKvsPeerConnection, PKvsRtpTrans
 
 STATUS setUpRollingBufferConfigInternal(PKvsRtpTransceiver, PRtcMediaStreamTrack, DOUBLE, DOUBLE);
 STATUS freeRollingBufferConfig(PRollingBufferConfig);
+STATUS populateRtpHeaderExtensions(PRtpPacket, UINT16, UINT16, UINT16, BOOL, UINT8, BOOL, PBYTE, PUINT32);
 
 #ifdef __cplusplus
 }

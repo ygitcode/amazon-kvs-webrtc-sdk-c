@@ -26,6 +26,9 @@ STATUS createKvsRtpTransceiver(RTC_RTP_TRANSCEIVER_DIRECTION direction, PKvsPeer
     pKvsRtpTransceiver->sender.track = *pRtcMediaStreamTrack;
     pKvsRtpTransceiver->sender.packetBuffer = NULL;
     pKvsRtpTransceiver->sender.retransmitter = NULL;
+    pKvsRtpTransceiver->sender.audioLevelEnabled = FALSE;
+    pKvsRtpTransceiver->sender.audioLevelVoiceActivity = FALSE;
+    pKvsRtpTransceiver->sender.audioLevelValue = RTP_AUDIO_LEVEL_DEFAULT_VALUE;
     pKvsRtpTransceiver->pJitterBuffer = pJitterBuffer;
     pKvsRtpTransceiver->transceiver.receiver.track.codec = rtcCodec;
     pKvsRtpTransceiver->transceiver.receiver.track.kind = pRtcMediaStreamTrack->kind;
@@ -259,6 +262,61 @@ CleanUp:
     return retStatus;
 }
 
+STATUS transceiverSetAudioLevel(PRtcRtpTransceiver pRtcRtpTransceiver, UINT8 audioLevel, BOOL voiceActivity)
+{
+    STATUS retStatus = STATUS_SUCCESS;
+    PKvsRtpTransceiver pKvsRtpTransceiver = (PKvsRtpTransceiver) pRtcRtpTransceiver;
+
+    CHK(pKvsRtpTransceiver != NULL, STATUS_NULL_ARG);
+    CHK(audioLevel <= RTP_AUDIO_LEVEL_DEFAULT_VALUE, STATUS_INVALID_ARG);
+
+    MUTEX_LOCK(pKvsRtpTransceiver->statsLock);
+    pKvsRtpTransceiver->sender.audioLevelEnabled = TRUE;
+    pKvsRtpTransceiver->sender.audioLevelVoiceActivity = voiceActivity;
+    pKvsRtpTransceiver->sender.audioLevelValue = audioLevel;
+    MUTEX_UNLOCK(pKvsRtpTransceiver->statsLock);
+
+CleanUp:
+    CHK_LOG_ERR(retStatus);
+    return retStatus;
+}
+
+STATUS populateRtpHeaderExtensions(PRtpPacket pRtpPacket, UINT16 twccExtId, UINT16 twccSeqNum, UINT16 audioLevelExtId, BOOL includeAudioLevelExt,
+                                   UINT8 audioLevel, BOOL voiceActivity, PBYTE pExtensionPayload, PUINT32 pExtensionPayloadLength)
+{
+    STATUS retStatus = STATUS_SUCCESS;
+    UINT32 offset = 0;
+
+    CHK(pRtpPacket != NULL && pExtensionPayload != NULL && pExtensionPayloadLength != NULL, STATUS_NULL_ARG);
+
+    if (twccExtId > 0 && twccExtId < 15) {
+        pExtensionPayload[offset++] = (UINT8) ((twccExtId << 4) | 1);
+        putUnalignedInt16BigEndian((PINT16) (pExtensionPayload + offset), twccSeqNum);
+        offset += SIZEOF(UINT16);
+    }
+
+    if (includeAudioLevelExt && audioLevelExtId > 0 && audioLevelExtId < 15) {
+        pExtensionPayload[offset++] = (UINT8) (audioLevelExtId << 4);
+        pExtensionPayload[offset++] = (UINT8) ((voiceActivity ? 0x80 : 0x00) | (audioLevel & 0x7f));
+    }
+
+    if (offset > 0) {
+        while ((offset % 4) != 0) {
+            pExtensionPayload[offset++] = 0;
+        }
+        pRtpPacket->header.extension = TRUE;
+        pRtpPacket->header.extensionProfile = TWCC_EXT_PROFILE;
+        pRtpPacket->header.extensionLength = offset;
+        pRtpPacket->header.extensionPayload = pExtensionPayload;
+    }
+
+    *pExtensionPayloadLength = offset;
+
+CleanUp:
+    CHK_LOG_ERR(retStatus);
+    return retStatus;
+}
+
 STATUS writeFrame(PRtcRtpTransceiver pRtcRtpTransceiver, PFrame pFrame)
 {
     STATUS retStatus = STATUS_SUCCESS;
@@ -282,13 +340,30 @@ STATUS writeFrame(PRtcRtpTransceiver pRtcRtpTransceiver, PFrame pFrame)
 
     // temp vars :(
     UINT64 tmpFrames, tmpTime;
-    UINT16 twsn;
-    UINT32 extpayload;
+    UINT16 twsn = 0;
+    UINT8 extensionPayload[MAX_RTP_ONE_BYTE_EXTENSION_BUFFER_LENGTH];
+    UINT32 extensionPayloadLength = 0;
+    UINT16 twccExtId = 0, audioLevelExtId = 0;
+    BOOL includeAudioLevelExt = FALSE, includeTwccExt = FALSE;
+    UINT8 audioLevel = RTP_AUDIO_LEVEL_DEFAULT_VALUE;
+    BOOL voiceActivity = FALSE;
     STATUS sendStatus;
 
     CHK(pKvsRtpTransceiver != NULL && pFrame != NULL, STATUS_NULL_ARG);
     pKvsPeerConnection = pKvsRtpTransceiver->pKvsPeerConnection;
     pPayloadArray = &(pKvsRtpTransceiver->sender.payloadArray);
+    twccExtId = pKvsRtpTransceiver->pKvsPeerConnection->twccExtId;
+    audioLevelExtId = pKvsPeerConnection->audioLevelExtId;
+    includeTwccExt = (twccExtId > 0 && twccExtId < 15);
+    if (MEDIA_STREAM_TRACK_KIND_AUDIO == pKvsRtpTransceiver->sender.track.kind) {
+        MUTEX_LOCK(pKvsRtpTransceiver->statsLock);
+        includeAudioLevelExt = pKvsRtpTransceiver->sender.audioLevelEnabled;
+        audioLevel = pKvsRtpTransceiver->sender.audioLevelValue;
+        voiceActivity = pKvsRtpTransceiver->sender.audioLevelVoiceActivity;
+        MUTEX_UNLOCK(pKvsRtpTransceiver->statsLock);
+        includeAudioLevelExt = includeAudioLevelExt && (audioLevelExtId > 0 && audioLevelExtId < 15);
+    }
+
     if (MEDIA_STREAM_TRACK_KIND_VIDEO == pKvsRtpTransceiver->sender.track.kind) {
         frames++;
         if (0 != (pFrame->flags & FRAME_FLAG_KEY_FRAME)) {
@@ -368,13 +443,10 @@ STATUS writeFrame(PRtcRtpTransceiver pRtcRtpTransceiver, PFrame pFrame)
     bufferAfterEncrypt = (pKvsRtpTransceiver->sender.payloadType == pKvsRtpTransceiver->sender.rtxPayloadType);
     for (i = 0; i < pPayloadArray->payloadSubLenSize; i++) {
         pRtpPacket = pPacketList + i;
-        if (pKvsRtpTransceiver->pKvsPeerConnection->twccExtId != 0) {
-            pRtpPacket->header.extension = TRUE;
-            pRtpPacket->header.extensionProfile = TWCC_EXT_PROFILE;
-            pRtpPacket->header.extensionLength = SIZEOF(UINT32);
-            twsn = (UINT16) ATOMIC_INCREMENT(&pKvsRtpTransceiver->pKvsPeerConnection->transportWideSequenceNumber);
-            extpayload = TWCC_PAYLOAD(pKvsRtpTransceiver->pKvsPeerConnection->twccExtId, twsn);
-            pRtpPacket->header.extensionPayload = (PBYTE) &extpayload;
+        if (includeTwccExt || includeAudioLevelExt) {
+            twsn = includeTwccExt ? (UINT16) ATOMIC_INCREMENT(&pKvsPeerConnection->transportWideSequenceNumber) : 0;
+            CHK_STATUS(populateRtpHeaderExtensions(pRtpPacket, twccExtId, twsn, audioLevelExtId, includeAudioLevelExt, audioLevel, voiceActivity,
+                                                   extensionPayload, &extensionPayloadLength));
         }
         // Get the required size first
         CHK_STATUS(createBytesFromRtpPacket(pRtpPacket, NULL, &packetLen));
@@ -399,7 +471,7 @@ STATUS writeFrame(PRtcRtpTransceiver pRtcRtpTransceiver, PFrame pFrame)
             framesDiscardedOnSend = 1;
             SAFE_MEMFREE(rawPacket);
             continue;
-        } else if (sendStatus == STATUS_SUCCESS && pKvsRtpTransceiver->pKvsPeerConnection->twccExtId != 0) {
+        } else if (sendStatus == STATUS_SUCCESS && includeTwccExt) {
             pRtpPacket->sentTime = GETTIME();
             twccManagerOnPacketSent(pKvsPeerConnection, pRtpPacket);
         }

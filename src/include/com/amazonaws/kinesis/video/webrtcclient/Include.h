@@ -1935,6 +1935,17 @@ PUBLIC_API STATUS writeFrame(PRtcRtpTransceiver, PFrame);
 PUBLIC_API STATUS updateEncoderStats(PRtcRtpTransceiver, PRtcEncoderStats);
 
 /**
+ * @brief Sets RFC6464 audio level value to be sent in RTP header extension.
+ *
+ * @param[in] PRtcRtpTransceiver Configured and connected RtcRtpTransceiver to send media
+ * @param[in] UINT8 Audio level in dBov [0, 127]
+ * @param[in] BOOL Voice activity bit to populate in RFC6464 extension
+ *
+ * @return STATUS code of the execution. STATUS_SUCCESS on success
+ */
+PUBLIC_API STATUS transceiverSetAudioLevel(PRtcRtpTransceiver, UINT8, BOOL);
+
+/**
  * @brief Provides a remote candidate to the ICE Agent.
  *
  * This method can also be used to indicate the end of remote candidates

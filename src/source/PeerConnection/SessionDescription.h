@@ -86,6 +86,7 @@ extern "C" {
 // https://tools.ietf.org/html/draft-holmer-rmcat-transport-wide-cc-extensions-01
 #define TWCC_SDP_ATTR "transport-cc"
 #define TWCC_EXT_URL  (PCHAR) "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01"
+#define AUDIO_LEVEL_EXT_URL (PCHAR) "urn:ietf:params:rtp-hdrext:ssrc-audio-level"
 
 #define CODEC_RTPMAP_PAYLOAD_TYPES_HASH_TABLE_BUCKET_LENGTH 2
 

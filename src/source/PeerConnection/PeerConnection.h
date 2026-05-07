@@ -141,6 +141,7 @@ typedef struct {
     // congestion control
     // https://tools.ietf.org/html/draft-holmer-rmcat-transport-wide-cc-extensions-01
     UINT16 twccExtId;
+    UINT16 audioLevelExtId;
     MUTEX twccLock;
     PTwccManager pTwccManager;
     RtcOnSenderBandwidthEstimation onSenderBandwidthEstimation;
