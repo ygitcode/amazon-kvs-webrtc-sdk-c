@@ -325,7 +325,7 @@ STATUS writeFrame(PRtcRtpTransceiver pRtcRtpTransceiver, PFrame pFrame)
     BOOL locked = FALSE, bufferAfterEncrypt = FALSE;
     PRtpPacket pPacketList = NULL, pRtpPacket = NULL;
     UINT32 i = 0, packetLen = 0, headerLen = 0, allocSize;
-    PBYTE rawPacket = NULL;
+    PBYTE rawPacket = NULL, pRtpExtensionPayloadBuffer = NULL, pRtpExtensionPayload = NULL;
     PPayloadArray pPayloadArray = NULL;
     RtpPayloadFunc rtpPayloadFunc = NULL;
     UINT64 randomRtpTimeoffset = 0; // TODO: spec requires random rtp time offset
@@ -341,7 +341,6 @@ STATUS writeFrame(PRtcRtpTransceiver pRtcRtpTransceiver, PFrame pFrame)
     // temp vars :(
     UINT64 tmpFrames, tmpTime;
     UINT16 twsn = 0;
-    UINT8 extensionPayload[MAX_RTP_ONE_BYTE_EXTENSION_BUFFER_LENGTH];
     UINT32 extensionPayloadLength = 0;
     UINT16 twccExtId = 0, audioLevelExtId = 0;
     BOOL includeAudioLevelExt = FALSE, includeTwccExt = FALSE;
@@ -439,14 +438,19 @@ STATUS writeFrame(PRtcRtpTransceiver pRtcRtpTransceiver, PFrame pFrame)
     CHK_STATUS(constructRtpPackets(pPayloadArray, pKvsRtpTransceiver->sender.payloadType, pKvsRtpTransceiver->sender.sequenceNumber, rtpTimestamp,
                                    pKvsRtpTransceiver->sender.ssrc, pPacketList, pPayloadArray->payloadSubLenSize));
     pKvsRtpTransceiver->sender.sequenceNumber = GET_UINT16_SEQ_NUM(pKvsRtpTransceiver->sender.sequenceNumber + pPayloadArray->payloadSubLenSize);
+    if (includeTwccExt || includeAudioLevelExt) {
+        pRtpExtensionPayloadBuffer = (PBYTE) MEMCALLOC(pPayloadArray->payloadSubLenSize, MAX_RTP_ONE_BYTE_EXTENSION_BUFFER_LENGTH);
+        CHK(pRtpExtensionPayloadBuffer != NULL, STATUS_NOT_ENOUGH_MEMORY);
+    }
 
     bufferAfterEncrypt = (pKvsRtpTransceiver->sender.payloadType == pKvsRtpTransceiver->sender.rtxPayloadType);
     for (i = 0; i < pPayloadArray->payloadSubLenSize; i++) {
         pRtpPacket = pPacketList + i;
         if (includeTwccExt || includeAudioLevelExt) {
+            pRtpExtensionPayload = pRtpExtensionPayloadBuffer + i * MAX_RTP_ONE_BYTE_EXTENSION_BUFFER_LENGTH;
             twsn = includeTwccExt ? (UINT16) ATOMIC_INCREMENT(&pKvsPeerConnection->transportWideSequenceNumber) : 0;
             CHK_STATUS(populateRtpHeaderExtensions(pRtpPacket, twccExtId, twsn, audioLevelExtId, includeAudioLevelExt, audioLevel, voiceActivity,
-                                                   extensionPayload, &extensionPayloadLength));
+                                                   pRtpExtensionPayload, &extensionPayloadLength));
         }
         // Get the required size first
         CHK_STATUS(createBytesFromRtpPacket(pRtpPacket, NULL, &packetLen));
@@ -538,6 +542,7 @@ CleanUp:
 
     SAFE_MEMFREE(rawPacket);
     SAFE_MEMFREE(pPacketList);
+    SAFE_MEMFREE(pRtpExtensionPayloadBuffer);
     if (retStatus != STATUS_SRTP_NOT_READY_YET) {
         CHK_LOG_ERR(retStatus);
     }
