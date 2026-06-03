@@ -299,6 +299,23 @@ To use the **Storage for WebRTC** feature, run the same command as above but wit
 Allowed audio-codec: opus (default codec if nothing is specified)
 Allowed video-codec: h264 (default codec if nothing is specified), h265
 
+#### Sample: kvsWebrtcWebsocketAnswerer
+This application starts a local websocket server and answers browser-generated WebRTC offers without using the KVS signaling service. It accepts receive-only H264/Opus media and expects signaling messages shaped as `{"type":"sdp","data":{...}}` and `{"type":"ice","data":{...}}`. The sample replies with the same wrapper and forwards browser-compatible answer/candidate JSON in the `data` field. To run:
+```shell
+./samples/kvsWebrtcWebsocketAnswerer <port> <optional-stun-url>
+```
+
+Example:
+```shell
+./samples/kvsWebrtcWebsocketAnswerer 8080 stun:stun.l.google.com:19302
+```
+
+Browser websocket messages:
+```json
+{"type":"sdp","data":{"type":"offer","sdp":"v=0\r\n..."}}
+{"type":"ice","data":{"candidate":"candidate:...","sdpMid":"0","sdpMLineIndex":0}}
+```
+
 #### Sample: kvsWebrtcClientMasterGstSample
 This application can send media from a GStreamer pipeline using test H264/Opus frames, device `autovideosrc` and `autoaudiosrc` input, or a received RTSP stream. It also will playback incoming audio via an `autoaudiosink`. To run:
 ```shell
