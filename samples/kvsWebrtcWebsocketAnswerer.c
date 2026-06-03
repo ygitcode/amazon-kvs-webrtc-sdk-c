@@ -64,12 +64,13 @@ static STATUS createWrappedMessage(PCHAR pMessageType, PCHAR pPayload, UINT32 pa
 {
     STATUS retStatus = STATUS_SUCCESS;
     PCHAR pWrappedMessage = NULL;
-    UINT32 wrappedMessageLen = 0;
+    UINT32 wrappedMessageLen = 0, messageTypeLen = 0;
     INT32 written = 0;
 
     CHK(ppWrappedMessage != NULL && pWrappedMessageLen != NULL && pMessageType != NULL && pPayload != NULL, STATUS_NULL_ARG);
 
-    wrappedMessageLen = (UINT32) (STRLEN("{\"type\":\"\",\"data\":}") + STRLEN(pMessageType) + payloadLen + 1);
+    messageTypeLen = (UINT32) STRLEN(pMessageType);
+    wrappedMessageLen = payloadLen + messageTypeLen + ARRAY_SIZE("{\"type\":\"\",\"data\":}");
     pWrappedMessage = (PCHAR) MEMCALLOC(wrappedMessageLen, SIZEOF(CHAR));
     CHK(pWrappedMessage != NULL, STATUS_NOT_ENOUGH_MEMORY);
 
@@ -200,7 +201,7 @@ static STATUS enqueueAnswerMessage(PWebsocketAnswererSession pSession)
 
     MEMSET(answerJson, 0x00, SIZEOF(answerJson));
     CHK_STATUS(serializeSessionDescriptionInit(&pSession->answerSessionDescriptionInit, answerJson, &answerJsonLen));
-    CHK_STATUS(enqueueWrappedSignalingMessage(pSession, (PCHAR) "sdp", answerJson, answerJsonLen - 1));
+    CHK_STATUS(enqueueWrappedSignalingMessage(pSession, (PCHAR) "sdp", answerJson, (UINT32) STRLEN(answerJson)));
     pSession->answerSent = TRUE;
 
 CleanUp:
@@ -404,7 +405,7 @@ static STATUS processWebsocketMessage(PWebsocketAnswererSession pSession, PCHAR 
 
     jsmn_init(&parser);
     tokenCount = jsmn_parse(&parser, pMessage, messageLen, tokens, ARRAY_SIZE(tokens));
-    CHK(tokenCount > 1, STATUS_INVALID_API_CALL_RETURN_JSON);
+    CHK(tokenCount > 1, STATUS_INVALID_ARG);
     CHK(tokens[0].type == JSMN_OBJECT, STATUS_INVALID_ARG);
 
     for (i = 1; i + 1 < tokenCount; i += 2) {
@@ -450,7 +451,7 @@ static INT32 websocketAnswererCallback(struct lws* wsi, enum lws_callback_reason
 
     switch (reason) {
         case LWS_CALLBACK_ESTABLISHED:
-            if (pApp->pActiveSession != NULL && pApp->pActiveSession->pWsi != NULL) {
+            if (pApp->pActiveSession != NULL) {
                 DLOGW("[Websocket Answerer] Only one websocket peer is supported at a time");
                 return -1;
             }
@@ -474,7 +475,7 @@ static INT32 websocketAnswererCallback(struct lws* wsi, enum lws_callback_reason
 
         case LWS_CALLBACK_RECEIVE:
             CHK(pSession != NULL, STATUS_NULL_ARG);
-            CHK(pSession->receiveOffset + len < ARRAY_SIZE(pSession->receiveBuffer), STATUS_BUFFER_TOO_SMALL);
+            CHK(pSession->receiveOffset + len < ARRAY_SIZE(pSession->receiveBuffer) - 1, STATUS_BUFFER_TOO_SMALL);
 
             MEMCPY(pSession->receiveBuffer + pSession->receiveOffset, in, len);
             pSession->receiveOffset += (UINT32) len;
@@ -566,6 +567,7 @@ INT32 main(INT32 argc, CHAR* argv[])
     struct lws_context_creation_info creationInfo;
     WebsocketAnswererApp app;
     INT32 logLevel = LOG_LEVEL_WARN;
+    PCHAR pLogLevel = NULL;
 
     MEMSET(&app, 0x00, SIZEOF(WebsocketAnswererApp));
     MEMSET(&creationInfo, 0x00, SIZEOF(creationInfo));
@@ -584,7 +586,8 @@ INT32 main(INT32 argc, CHAR* argv[])
         STRNCPY(app.stunServerUrl, argv[2], MAX_ICE_CONFIG_URI_LEN);
     }
 
-    if (NULL != GETENV(DEBUG_LOG_LEVEL_ENV_VAR) && STATUS_SUCCESS != STRTOUI32(GETENV(DEBUG_LOG_LEVEL_ENV_VAR), NULL, 10, (PUINT32) &logLevel)) {
+    pLogLevel = GETENV(DEBUG_LOG_LEVEL_ENV_VAR);
+    if (pLogLevel != NULL && STATUS_SUCCESS != STRTOUI32(pLogLevel, NULL, 10, (PUINT32) &logLevel)) {
         logLevel = LOG_LEVEL_WARN;
     }
     SET_LOGGER_LOG_LEVEL(logLevel);
