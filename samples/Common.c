@@ -24,8 +24,6 @@ UINT32 setLogLevel()
     return logLevel;
 }
 
-STATUS createSampleConfigurationWithSignaling(PCHAR, SIGNALING_CHANNEL_ROLE_TYPE, BOOL, BOOL, BOOL, UINT32, PSampleConfiguration*);
-
 static PCHAR getMasterPeerId(PCHAR peerId)
 {
     return IS_EMPTY_STRING(peerId) ? (PCHAR) SAMPLE_VIEWER_CLIENT_ID : peerId;
@@ -904,10 +902,6 @@ STATUS createSampleConfigurationWithSignaling(PCHAR channelName, SIGNALING_CHANN
 
     CHK(NULL != (pSampleConfiguration = (PSampleConfiguration) MEMCALLOC(1, SIZEOF(SampleConfiguration))), STATUS_NOT_ENOUGH_MEMORY);
 
-    pAccessKey = NULL;
-    pSecretKey = NULL;
-    pSessionToken = NULL;
-
 #ifdef IOT_CORE_ENABLE_CREDENTIALS
     PCHAR pIotCoreCredentialEndPoint = NULL, pIotCoreCert = NULL, pIotCorePrivateKey = NULL, pIotCoreRoleAlias = NULL,
           pIotCoreCertificateId = NULL, pIotCoreThingName = NULL;
@@ -1133,7 +1127,11 @@ STATUS masterOnRemoteOffer(PSampleConfiguration pSampleConfiguration, PCHAR peer
         pSampleStreamingSession = (PSampleStreamingSession) hashValue;
     }
 
-    CHK(!peerConnectionFound && pSampleConfiguration->streamingSessionCount == 0, STATUS_INVALID_OPERATION);
+    if (peerConnectionFound || pSampleConfiguration->streamingSessionCount != 0) {
+        DLOGW("Local master mode currently supports only one active streaming session");
+    }
+    CHK(!peerConnectionFound, STATUS_INVALID_OPERATION);
+    CHK(pSampleConfiguration->streamingSessionCount == 0, STATUS_INVALID_OPERATION);
     CHK_STATUS(createSampleStreamingSession(pSampleConfiguration, message.peerClientId, TRUE, &pSampleStreamingSession));
     freeStreamingSession = TRUE;
     CHK_STATUS(handleOffer(pSampleConfiguration, pSampleStreamingSession, &message));

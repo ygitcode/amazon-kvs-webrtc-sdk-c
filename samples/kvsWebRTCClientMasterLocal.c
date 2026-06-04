@@ -50,14 +50,13 @@ PVOID localSendVideoPackets(PVOID args)
     CHAR filePath[MAX_PATH_LEN + 1];
     STATUS status;
     UINT32 i;
-    UINT64 startTime, lastFrameTime, elapsed;
+    UINT64 startTime, elapsed;
 
     MEMSET(&encoderStats, 0x00, SIZEOF(RtcEncoderStats));
     CHK_ERR(pSampleConfiguration != NULL, STATUS_NULL_ARG, "[KVS Master Local] Streaming session is NULL");
 
     frame.presentationTs = 0;
     startTime = GETTIME();
-    lastFrameTime = startTime;
 
     while (!ATOMIC_LOAD_BOOL(&pSampleConfiguration->appTerminateFlag)) {
         fileIndex = fileIndex % NUMBER_OF_H264_FRAME_FILES + 1;
@@ -100,9 +99,8 @@ PVOID localSendVideoPackets(PVOID args)
         }
         MUTEX_UNLOCK(pSampleConfiguration->streamingSessionListReadLock);
 
-        elapsed = lastFrameTime - startTime;
+        elapsed = GETTIME() - startTime;
         THREAD_SLEEP(SAMPLE_VIDEO_FRAME_DURATION - elapsed % SAMPLE_VIDEO_FRAME_DURATION);
-        lastFrameTime = GETTIME();
     }
 
 CleanUp:
