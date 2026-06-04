@@ -23,6 +23,190 @@ STATUS sampleSendIceCandidate(UINT64 customData, PCHAR peerClientId, PCHAR iceCa
     return STATUS_SUCCESS;
 }
 
+STATUS localReadFrameFromDisk(PBYTE pFrame, PUINT32 pSize, PCHAR frameFilePath)
+{
+    STATUS retStatus = STATUS_SUCCESS;
+    UINT64 size = 0;
+    CHK_ERR(pSize != NULL, STATUS_NULL_ARG, "[KVS Master Local] Invalid file size");
+    size = *pSize;
+    CHK_STATUS(readFile(frameFilePath, TRUE, pFrame, &size));
+
+CleanUp:
+
+    if (pSize != NULL) {
+        *pSize = (UINT32) size;
+    }
+
+    return retStatus;
+}
+
+PVOID localSendVideoPackets(PVOID args)
+{
+    STATUS retStatus = STATUS_SUCCESS;
+    PSampleConfiguration pSampleConfiguration = (PSampleConfiguration) args;
+    RtcEncoderStats encoderStats;
+    Frame frame;
+    UINT32 fileIndex = 0, frameSize;
+    CHAR filePath[MAX_PATH_LEN + 1];
+    STATUS status;
+    UINT32 i;
+    UINT64 startTime, lastFrameTime, elapsed;
+
+    MEMSET(&encoderStats, 0x00, SIZEOF(RtcEncoderStats));
+    CHK_ERR(pSampleConfiguration != NULL, STATUS_NULL_ARG, "[KVS Master Local] Streaming session is NULL");
+
+    frame.presentationTs = 0;
+    startTime = GETTIME();
+    lastFrameTime = startTime;
+
+    while (!ATOMIC_LOAD_BOOL(&pSampleConfiguration->appTerminateFlag)) {
+        fileIndex = fileIndex % NUMBER_OF_H264_FRAME_FILES + 1;
+        if (pSampleConfiguration->videoCodec == RTC_CODEC_H264_PROFILE_42E01F_LEVEL_ASYMMETRY_ALLOWED_PACKETIZATION_MODE) {
+            SNPRINTF(filePath, MAX_PATH_LEN, "./h264SampleFrames/frame-%04d.h264", fileIndex);
+        } else if (pSampleConfiguration->videoCodec == RTC_CODEC_H265) {
+            SNPRINTF(filePath, MAX_PATH_LEN, "./h265SampleFrames/frame-%04d.h265", fileIndex);
+        }
+
+        CHK_STATUS(localReadFrameFromDisk(NULL, &frameSize, filePath));
+        if (frameSize > pSampleConfiguration->videoBufferSize) {
+            pSampleConfiguration->pVideoFrameBuffer = (PBYTE) MEMREALLOC(pSampleConfiguration->pVideoFrameBuffer, frameSize);
+            CHK_ERR(pSampleConfiguration->pVideoFrameBuffer != NULL, STATUS_NOT_ENOUGH_MEMORY,
+                    "[KVS Master Local] Failed to allocate video frame buffer");
+            pSampleConfiguration->videoBufferSize = frameSize;
+        }
+
+        frame.frameData = pSampleConfiguration->pVideoFrameBuffer;
+        frame.size = frameSize;
+        CHK_STATUS(localReadFrameFromDisk(frame.frameData, &frameSize, filePath));
+
+        encoderStats.width = 640;
+        encoderStats.height = 480;
+        encoderStats.targetBitrate = 262000;
+        frame.presentationTs += SAMPLE_VIDEO_FRAME_DURATION;
+        MUTEX_LOCK(pSampleConfiguration->streamingSessionListReadLock);
+        for (i = 0; i < pSampleConfiguration->streamingSessionCount; ++i) {
+            status = writeFrame(pSampleConfiguration->sampleStreamingSessionList[i]->pVideoRtcRtpTransceiver, &frame);
+            if (pSampleConfiguration->sampleStreamingSessionList[i]->firstFrame && status == STATUS_SUCCESS) {
+                PROFILE_WITH_START_TIME(pSampleConfiguration->sampleStreamingSessionList[i]->offerReceiveTime, "Time to first frame");
+                pSampleConfiguration->sampleStreamingSessionList[i]->firstFrame = FALSE;
+            }
+            encoderStats.encodeTimeMsec = 4;
+            updateEncoderStats(pSampleConfiguration->sampleStreamingSessionList[i]->pVideoRtcRtpTransceiver, &encoderStats);
+            if (status == STATUS_SRTP_NOT_READY_YET) {
+                fileIndex = 0;
+            } else if (status != STATUS_SUCCESS) {
+                DLOGV("writeFrame() failed with 0x%08x", status);
+            }
+        }
+        MUTEX_UNLOCK(pSampleConfiguration->streamingSessionListReadLock);
+
+        elapsed = lastFrameTime - startTime;
+        THREAD_SLEEP(SAMPLE_VIDEO_FRAME_DURATION - elapsed % SAMPLE_VIDEO_FRAME_DURATION);
+        lastFrameTime = GETTIME();
+    }
+
+CleanUp:
+
+    DLOGI("[KVS Master Local] Closing video thread");
+    CHK_LOG_ERR(retStatus);
+    return (PVOID) (ULONG_PTR) retStatus;
+}
+
+PVOID localSendAudioPackets(PVOID args)
+{
+    STATUS retStatus = STATUS_SUCCESS;
+    PSampleConfiguration pSampleConfiguration = (PSampleConfiguration) args;
+    Frame frame;
+    UINT32 fileIndex = 0, frameSize;
+    CHAR filePath[MAX_PATH_LEN + 1];
+    UINT32 i;
+    STATUS status;
+
+    CHK_ERR(pSampleConfiguration != NULL, STATUS_NULL_ARG, "[KVS Master Local] Streaming session is NULL");
+    frame.presentationTs = 0;
+
+    while (!ATOMIC_LOAD_BOOL(&pSampleConfiguration->appTerminateFlag)) {
+        if (pSampleConfiguration->audioCodec == RTC_CODEC_OPUS) {
+            fileIndex = fileIndex % NUMBER_OF_OPUS_FRAME_FILES + 1;
+            SNPRINTF(filePath, MAX_PATH_LEN, "./opusSampleFrames/sample-%03d.opus", fileIndex);
+        } else if (pSampleConfiguration->audioCodec == RTC_CODEC_AAC) {
+            fileIndex = fileIndex % NUMBER_OF_AAC_FRAME_FILES + 1;
+            SNPRINTF(filePath, MAX_PATH_LEN, "./aacSampleFrames/sample-%03d.aac", fileIndex);
+        } else if (pSampleConfiguration->audioCodec == RTC_CODEC_ALAW) {
+            fileIndex = fileIndex % NUMBER_OF_ALAW_FRAME_FILES + 1;
+            SNPRINTF(filePath, MAX_PATH_LEN, "./alawSampleFrames/sample-%03d.pcm", fileIndex);
+        } else if (pSampleConfiguration->audioCodec == RTC_CODEC_MULAW) {
+            fileIndex = fileIndex % NUMBER_OF_MULAW_FRAME_FILES + 1;
+            SNPRINTF(filePath, MAX_PATH_LEN, "./mulawSampleFrames/sample-%03d.pcm", fileIndex);
+        }
+
+        CHK_STATUS(localReadFrameFromDisk(NULL, &frameSize, filePath));
+        if (frameSize > pSampleConfiguration->audioBufferSize) {
+            pSampleConfiguration->pAudioFrameBuffer = (PBYTE) MEMREALLOC(pSampleConfiguration->pAudioFrameBuffer, frameSize);
+            CHK_ERR(pSampleConfiguration->pAudioFrameBuffer != NULL, STATUS_NOT_ENOUGH_MEMORY,
+                    "[KVS Master Local] Failed to allocate audio frame buffer");
+            pSampleConfiguration->audioBufferSize = frameSize;
+        }
+
+        frame.frameData = pSampleConfiguration->pAudioFrameBuffer;
+        frame.size = frameSize;
+        CHK_STATUS(localReadFrameFromDisk(frame.frameData, &frameSize, filePath));
+
+        if (pSampleConfiguration->audioCodec == RTC_CODEC_AAC) {
+            frame.presentationTs += SAMPLE_AUDIO_AAC_FRAME_DURATION;
+        } else if (pSampleConfiguration->audioCodec == RTC_CODEC_ALAW) {
+            frame.presentationTs += SAMPLE_AUDIO_ALAW_FRAME_DURATION;
+        } else if (pSampleConfiguration->audioCodec == RTC_CODEC_MULAW) {
+            frame.presentationTs += SAMPLE_AUDIO_MULAW_FRAME_DURATION;
+        } else {
+            frame.presentationTs += SAMPLE_AUDIO_FRAME_DURATION;
+        }
+
+        MUTEX_LOCK(pSampleConfiguration->streamingSessionListReadLock);
+        for (i = 0; i < pSampleConfiguration->streamingSessionCount; ++i) {
+            status = writeFrame(pSampleConfiguration->sampleStreamingSessionList[i]->pAudioRtcRtpTransceiver, &frame);
+            if (status == STATUS_SRTP_NOT_READY_YET) {
+                fileIndex = 0;
+            } else if (status != STATUS_SUCCESS) {
+                DLOGV("writeFrame() failed with 0x%08x", status);
+            } else if (pSampleConfiguration->sampleStreamingSessionList[i]->firstFrame) {
+                PROFILE_WITH_START_TIME(pSampleConfiguration->sampleStreamingSessionList[i]->offerReceiveTime, "Time to first frame");
+                pSampleConfiguration->sampleStreamingSessionList[i]->firstFrame = FALSE;
+            }
+        }
+        MUTEX_UNLOCK(pSampleConfiguration->streamingSessionListReadLock);
+
+        if (pSampleConfiguration->audioCodec == RTC_CODEC_AAC) {
+            THREAD_SLEEP(SAMPLE_AUDIO_AAC_FRAME_DURATION);
+        } else if (pSampleConfiguration->audioCodec == RTC_CODEC_ALAW) {
+            THREAD_SLEEP(SAMPLE_AUDIO_ALAW_FRAME_DURATION);
+        } else if (pSampleConfiguration->audioCodec == RTC_CODEC_MULAW) {
+            THREAD_SLEEP(SAMPLE_AUDIO_MULAW_FRAME_DURATION);
+        } else {
+            THREAD_SLEEP(SAMPLE_AUDIO_FRAME_DURATION);
+        }
+    }
+
+CleanUp:
+
+    DLOGI("[KVS Master Local] Closing audio thread");
+    return (PVOID) (ULONG_PTR) retStatus;
+}
+
+PVOID localSampleReceiveAudioVideoFrame(PVOID args)
+{
+    STATUS retStatus = STATUS_SUCCESS;
+    PSampleStreamingSession pSampleStreamingSession = (PSampleStreamingSession) args;
+
+    CHK_ERR(pSampleStreamingSession != NULL, STATUS_NULL_ARG, "[KVS Master Local] Streaming session is NULL");
+    CHK_STATUS(transceiverOnFrame(pSampleStreamingSession->pVideoRtcRtpTransceiver, (UINT64) pSampleStreamingSession, sampleVideoFrameHandler));
+    CHK_STATUS(transceiverOnFrame(pSampleStreamingSession->pAudioRtcRtpTransceiver, (UINT64) pSampleStreamingSession, sampleAudioFrameHandler));
+
+CleanUp:
+
+    return (PVOID) (ULONG_PTR) retStatus;
+}
+
 INT32 main(INT32 argc, CHAR* argv[])
 {
     STATUS retStatus = STATUS_SUCCESS;
@@ -67,9 +251,9 @@ INT32 main(INT32 argc, CHAR* argv[])
         }
     }
 
-    pSampleConfiguration->audioSource = sendAudioPackets;
-    pSampleConfiguration->videoSource = sendVideoPackets;
-    pSampleConfiguration->receiveAudioVideoSource = sampleReceiveAudioVideoFrame;
+    pSampleConfiguration->audioSource = localSendAudioPackets;
+    pSampleConfiguration->videoSource = localSendVideoPackets;
+    pSampleConfiguration->receiveAudioVideoSource = localSampleReceiveAudioVideoFrame;
     pSampleConfiguration->audioCodec = audioCodec;
     pSampleConfiguration->videoCodec = videoCodec;
     pSampleConfiguration->mediaType = SAMPLE_STREAMING_AUDIO_VIDEO;
@@ -115,19 +299,19 @@ INT32 main(INT32 argc, CHAR* argv[])
     }
 
     if (videoCodec == RTC_CODEC_H264_PROFILE_42E01F_LEVEL_ASYMMETRY_ALLOWED_PACKETIZATION_MODE) {
-        CHK_STATUS(readFrameFromDisk(NULL, &frameSize, "./h264SampleFrames/frame-0001.h264"));
+        CHK_STATUS(localReadFrameFromDisk(NULL, &frameSize, "./h264SampleFrames/frame-0001.h264"));
     } else if (videoCodec == RTC_CODEC_H265) {
-        CHK_STATUS(readFrameFromDisk(NULL, &frameSize, "./h265SampleFrames/frame-0001.h265"));
+        CHK_STATUS(localReadFrameFromDisk(NULL, &frameSize, "./h265SampleFrames/frame-0001.h265"));
     }
 
     if (audioCodec == RTC_CODEC_OPUS) {
-        CHK_STATUS(readFrameFromDisk(NULL, &frameSize, "./opusSampleFrames/sample-001.opus"));
+        CHK_STATUS(localReadFrameFromDisk(NULL, &frameSize, "./opusSampleFrames/sample-001.opus"));
     } else if (audioCodec == RTC_CODEC_AAC) {
-        CHK_STATUS(readFrameFromDisk(NULL, &frameSize, "./aacSampleFrames/sample-001.aac"));
+        CHK_STATUS(localReadFrameFromDisk(NULL, &frameSize, "./aacSampleFrames/sample-001.aac"));
     } else if (audioCodec == RTC_CODEC_ALAW) {
-        CHK_STATUS(readFrameFromDisk(NULL, &frameSize, "./alawSampleFrames/sample-001.pcm"));
+        CHK_STATUS(localReadFrameFromDisk(NULL, &frameSize, "./alawSampleFrames/sample-001.pcm"));
     } else if (audioCodec == RTC_CODEC_MULAW) {
-        CHK_STATUS(readFrameFromDisk(NULL, &frameSize, "./mulawSampleFrames/sample-001.pcm"));
+        CHK_STATUS(localReadFrameFromDisk(NULL, &frameSize, "./mulawSampleFrames/sample-001.pcm"));
     }
 
     CHK_STATUS(initKvsWebRtc());

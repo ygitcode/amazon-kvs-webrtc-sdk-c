@@ -26,12 +26,12 @@ UINT32 setLogLevel()
 
 STATUS createSampleConfigurationWithSignaling(PCHAR, SIGNALING_CHANNEL_ROLE_TYPE, BOOL, BOOL, BOOL, UINT32, PSampleConfiguration*);
 
-STATIC PCHAR getMasterPeerId(PCHAR peerId)
+static PCHAR getMasterPeerId(PCHAR peerId)
 {
     return IS_EMPTY_STRING(peerId) ? (PCHAR) SAMPLE_VIEWER_CLIENT_ID : peerId;
 }
 
-STATIC STATUS populateSignalingMessage(PSignalingMessage pMessage, SIGNALING_MESSAGE_TYPE messageType, PCHAR peerId, PCHAR payload)
+static STATUS populateSignalingMessage(PSignalingMessage pMessage, SIGNALING_MESSAGE_TYPE messageType, PCHAR peerId, PCHAR payload)
 {
     STATUS retStatus = STATUS_SUCCESS;
     UINT32 payloadLen;
