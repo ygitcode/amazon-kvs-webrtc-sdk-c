@@ -110,6 +110,9 @@ typedef enum {
     RTSP_SOURCE,
 } SampleSourceType;
 
+typedef STATUS (*SampleCustomSdpAnswerSender)(UINT64, PCHAR, PCHAR);
+typedef STATUS (*SampleCustomIceCandidateSender)(UINT64, PCHAR, PCHAR);
+
 typedef struct __SampleStreamingSession SampleStreamingSession;
 typedef struct __SampleStreamingSession* PSampleStreamingSession;
 
@@ -160,17 +163,24 @@ typedef struct {
 
     MUTEX sampleConfigurationObjLock;
     CVAR cvar;
+    BOOL useCustomSignaling;
     BOOL trickleIce;
     BOOL useTurn;
+    BOOL useDefaultStunServer;
     BOOL enableSendingMetricsToViewerViaDc;
     BOOL enableFileLogging;
     UINT64 customData;
+    UINT64 customSignalingCustomData;
     PSampleStreamingSession sampleStreamingSessionList[DEFAULT_MAX_CONCURRENT_STREAMING_SESSION];
     UINT32 streamingSessionCount;
     MUTEX streamingSessionListReadLock;
     UINT32 iceUriCount;
+    UINT32 customIceServerCount;
+    RtcIceServer customIceServers[MAX_ICE_SERVERS_COUNT];
     SignalingClientCallbacks signalingClientCallbacks;
     SignalingClientInfo clientInfo;
+    SampleCustomSdpAnswerSender sendSdpAnswer;
+    SampleCustomIceCandidateSender sendIceCandidate;
 
     RtcStats rtcIceCandidatePairMetrics;
 
@@ -255,6 +265,7 @@ PVOID getPeriodicIceCandidatePairStats(PVOID);
 STATUS getIceCandidatePairStatsCallback(UINT32, UINT64, UINT64);
 STATUS pregenerateCertTimerCallback(UINT32, UINT64, UINT64);
 STATUS createSampleConfiguration(PCHAR, SIGNALING_CHANNEL_ROLE_TYPE, BOOL, BOOL, UINT32, PSampleConfiguration*);
+STATUS createSampleConfigurationWithSignaling(PCHAR, SIGNALING_CHANNEL_ROLE_TYPE, BOOL, BOOL, BOOL, UINT32, PSampleConfiguration*);
 STATUS freeSampleConfiguration(PSampleConfiguration*);
 STATUS signalingClientStateChanged(UINT64, SIGNALING_CLIENT_STATE);
 STATUS signalingMessageReceived(UINT64, PReceivedSignalingMessage);
@@ -286,6 +297,8 @@ STATUS submitPendingIceCandidate(PPendingMessageQueue, PSampleStreamingSession);
 STATUS removeExpiredMessageQueues(PStackQueue);
 STATUS getPendingMessageQueueForHash(PStackQueue, UINT64, BOOL, PPendingMessageQueue*);
 STATUS initSignaling(PSampleConfiguration, PCHAR);
+STATUS masterOnRemoteOffer(PSampleConfiguration, PCHAR, PCHAR);
+STATUS masterOnRemoteIceCandidate(PSampleConfiguration, PCHAR, PCHAR);
 BOOL sampleFilterNetworkInterfaces(UINT64, PCHAR);
 UINT32 setLogLevel();
 

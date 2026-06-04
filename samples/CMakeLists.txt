@@ -73,6 +73,12 @@ add_executable(
 target_link_libraries(kvsWebrtcClientMaster kvsWebrtcClient kvsWebrtcSignalingClient ${EXTRA_DEPS} kvsCommonLws kvspicUtils websockets)
 
 add_executable(
+  kvsWebrtcClientMasterLocal
+  Common.c
+  kvsWebRTCClientMasterLocal.c)
+target_link_libraries(kvsWebrtcClientMasterLocal kvsWebrtcClient kvsWebrtcSignalingClient ${EXTRA_DEPS} kvsCommonLws kvspicUtils websockets)
+
+add_executable(
   kvsWebrtcClientViewer
   Common.c
   kvsWebRTCClientViewer.c)
@@ -109,7 +115,6 @@ if(GST_FOUND)
   )
 endif()
 
-install(TARGETS kvsWebrtcClientMaster kvsWebrtcClientViewer discoverNatBehavior
+install(TARGETS kvsWebrtcClientMaster kvsWebrtcClientMasterLocal kvsWebrtcClientViewer discoverNatBehavior
   RUNTIME DESTINATION bin
 )
-
